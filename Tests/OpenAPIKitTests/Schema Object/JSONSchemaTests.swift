@@ -2033,6 +2033,27 @@ extension SchemaObjectTests {
         XCTAssertEqual(decoded, .null())
     }
 
+    func test_decodeAllPreservesExplicitSiblingType() throws {
+        let data = """
+        {
+          "type": "integer",
+          "allOf": [
+            { "minimum": 13 }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try orderUnstableDecode(JSONSchema.self, from: data)
+
+        XCTAssertEqual(
+            decoded,
+            .all(of: [
+                .integer(.init(), .init()),
+                .number(.init(), .init(minimum: (13, exclusive: false))),
+            ])
+        )
+    }
+
     func test_encodeNullType() throws {
         let nullType = JSONSchema.null()
 

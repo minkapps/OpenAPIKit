@@ -2067,10 +2067,14 @@ extension JSONSchema: Decodable {
 
         if container.contains(.allOf) {
             let coreContext = try CoreContext<JSONTypeFormat.AnyFormat>(from: decoder)
+            var schemas = try container.decode([JSONSchema].self, forKey: .allOf)
+            if let explicitType = try Self.decodeExplicitTypeSchema(from: decoder) {
+                schemas.insert(explicitType, at: 0)
+            }
             var schema: JSONSchema = .init(
                 warnings: coreContext.warnings,
                 schema: .all(
-                    of: try container.decode([JSONSchema].self, forKey: .allOf),
+                    of: schemas,
                     core: coreContext
                 )
             )
@@ -2255,6 +2259,48 @@ extension JSONSchema: Decodable {
         let extensions = try Self.decodeVenderExtensions(from: decoder)
 
         self.value = value.with(vendorExtensions: extensions)
+    }
+
+    /// Decodes a schema's explicit `type` and its type-specific sibling keywords.
+    /// An `allOf` is conjunctive, so retaining this schema as its first member
+    /// preserves constraints declared alongside the composition keyword.
+    private static func decodeExplicitTypeSchema(from decoder: Decoder) throws -> JSONSchema? {
+        let hintContainer = try decoder.container(keyedBy: HintCodingKeys.self)
+        guard let typeHint = try decodeTypes(from: hintContainer).first else { return nil }
+
+        let value: Schema
+        let warnings: [OpenAPI.Warning]
+        switch typeHint {
+        case .null:
+            let core = try CoreContext<JSONTypeFormat.AnyFormat>(from: decoder)
+            value = .null(core)
+            warnings = core.warnings
+        case .boolean:
+            let core = try CoreContext<JSONTypeFormat.BooleanFormat>(from: decoder)
+            value = .boolean(core)
+            warnings = core.warnings
+        case .number:
+            let core = try CoreContext<JSONTypeFormat.NumberFormat>(from: decoder)
+            value = .number(core, try NumericContext(from: decoder))
+            warnings = core.warnings
+        case .integer:
+            let core = try CoreContext<JSONTypeFormat.IntegerFormat>(from: decoder)
+            value = .integer(core, try IntegerContext(from: decoder))
+            warnings = core.warnings
+        case .string:
+            let core = try CoreContext<JSONTypeFormat.StringFormat>(from: decoder)
+            value = .string(core, try StringContext(from: decoder))
+            warnings = core.warnings
+        case .array:
+            let core = try CoreContext<JSONTypeFormat.ArrayFormat>(from: decoder)
+            value = .array(core, try ArrayContext(from: decoder))
+            warnings = core.warnings
+        case .object:
+            let core = try CoreContext<JSONTypeFormat.ObjectFormat>(from: decoder)
+            value = .object(core, try ObjectContext(from: decoder))
+            warnings = core.warnings
+        }
+        return .init(warnings: warnings, schema: value)
     }
 
     private static func decodeVenderExtensions(from decoder: Decoder) throws -> [String: AnyCodable] {
